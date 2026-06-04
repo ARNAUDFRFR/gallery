@@ -132,13 +132,10 @@ dependencies {
   debugImplementation(libs.androidx.ui.test.manifest)
   ksp(libs.moshi.kotlin.codegen)
   implementation(libs.mlkit.genai.prompt)
-<<<<<<< ours
   implementation(libs.mcp.kotlin.sdk)
   implementation(libs.ktor.client.android)
   implementation(libs.ktor.client.core)
-=======
   implementation(libs.nanohttpd)
->>>>>>> theirs
 }
 
 protobuf {
