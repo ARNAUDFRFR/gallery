@@ -37,17 +37,57 @@ jobs:
       working-directory: Android/src
       run: ./gradlew assembleRelease --no-daemon
 
-    - name: Sign APKs
-      uses: r0adkll/sign-android-release@v1
-      id: sign_app
-      with:
-        releaseDirectory: Android/src/app/build/outputs/apk/release
-        signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-        alias: ${{ secrets.ALIAS }}
-        keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-        keyPassword: ${{ secrets.KEY_PASSWORD }}
+    - name: Sign APKs manually
       env:
-        BUILD_TOOLS_VERSION: "35.0.0"
+        SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        ALIAS: ${{ secrets.ALIAS }}
+        KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: |
+        # Decode the keystore from the secret to a temporary file
+        echo "$SIGNING_KEY" | base64 -d > signingKey.pfx
+        
+        BUILD_TOOLS_DIR="${ANDROID_HOME}/build-tools/35.0.0"
+        
+        echo "=== Signing Release APKs ==="
+        for apk in Android/src/app/build/outputs/apk/release/*-release.apk; do
+          if [ -f "$apk" ]; then
+            echo "Signing $apk..."
+            
+            # Verify alignment first, or align if necessary
+            if "$BUILD_TOOLS_DIR/zipalign" -c 4 "$apk"; then
+              echo "$apk is already aligned."
+              aligned_apk="$apk"
+            else
+              echo "Aligning $apk..."
+              aligned_apk="${apk%.apk}-aligned.apk"
+              "$BUILD_TOOLS_DIR/zipalign" -f 4 "$apk" "$aligned_apk"
+            fi
+            
+            # Sign the aligned APK and produce a -signed.apk file
+            signed_apk="${apk%-release.apk}-signed.apk"
+            "$BUILD_TOOLS_DIR/apksigner" sign \
+              --ks signingKey.pfx \
+              --ks-type PKCS12 \
+              --ks-key-alias "$ALIAS" \
+              --ks-pass pass:"$KEY_STORE_PASSWORD" \
+              --key-pass pass:"$KEY_PASSWORD" \
+              --out "$signed_apk" \
+              "$aligned_apk"
+              
+            # Verify the signed APK
+            "$BUILD_TOOLS_DIR/apksigner" verify "$signed_apk"
+            
+            # Clean up the unsigned / intermediate files
+            rm -f "$apk"
+            if [ "$aligned_apk" != "$apk" ]; then
+              rm -f "$aligned_apk"
+            fi
+          fi
+        done
+        
+        # Clean up keystore file
+        rm -f signingKey.pfx
 
     - name: List built APKs
       run: |
