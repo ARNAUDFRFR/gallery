@@ -87,14 +87,11 @@ import com.google.ai.edge.gallery.ui.modelmanager.GlobalModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
-<<<<<<< ours
 import com.google.ai.edge.gallery.ui.notifications.NotificationsScreen
-=======
 import com.google.ai.edge.gallery.edgeserver.EdgeServerManager
 import com.google.ai.edge.gallery.edgeserver.EdgeServerScreen
 import com.google.ai.edge.gallery.claw.ClawScreen
 import com.google.ai.edge.gallery.runtime.runtimeHelper
->>>>>>> theirs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -105,15 +102,9 @@ private const val ROUTE_MODEL_LIST = "model_list"
 private const val ROUTE_MODEL = "route_model"
 private const val ROUTE_BENCHMARK = "benchmark"
 private const val ROUTE_MODEL_MANAGER = "model_manager"
-<<<<<<< ours
 private const val ROUTE_NOTIFICATIONS = "notifications"
-=======
 private const val ROUTE_EDGE_SERVER = "edge_server"
-<<<<<<< ours
->>>>>>> theirs
-=======
 private const val ROUTE_CLAW = "claw"
->>>>>>> theirs
 private const val ENTER_ANIMATION_DURATION_MS = 500
 private val ENTER_ANIMATION_EASING = EaseOutExpo
 private const val ENTER_ANIMATION_DELAY_MS = 100
@@ -280,15 +271,9 @@ fun GalleryNavHost(
               )
             },
             onModelsClicked = { navController.navigate(ROUTE_MODEL_MANAGER) },
-<<<<<<< ours
             onNotificationsClicked = { navController.navigate(ROUTE_NOTIFICATIONS) },
-=======
             onEdgeServerClicked = { navController.navigate(ROUTE_EDGE_SERVER) },
-<<<<<<< ours
->>>>>>> theirs
-=======
             onClawClicked = { navController.navigate(ROUTE_CLAW) },
->>>>>>> theirs
             gm4 = true,
           )
         }
