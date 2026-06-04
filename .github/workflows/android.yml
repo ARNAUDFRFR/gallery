@@ -37,6 +37,18 @@ jobs:
       working-directory: Android/src
       run: ./gradlew assembleRelease --no-daemon
 
+    - name: Diagnose Keystore
+      env:
+        SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+      run: |
+        echo "$SIGNING_KEY" | base64 -d > testKey.pfx
+        echo "=== Keystore File Size ==="
+        ls -lh testKey.pfx
+        echo "=== Keystore List ==="
+        keytool -list -v -keystore testKey.pfx -storetype PKCS12 -storepass "$KEY_STORE_PASSWORD"
+        rm -f testKey.pfx
+
     - name: Sign APKs manually
       env:
         SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
