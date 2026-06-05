@@ -204,14 +204,35 @@ fun GalleryNavHost(
 
     autoInitDone = true
 
-    // Pick the remembered model, or fall back to the first downloaded one
-    val savedModelName = prefs.getString("last_model", null)
-    val model = downloaded.find { it.name == savedModelName } ?: downloaded.first()
+    // Load auto-start settings for Edge Server
+    val serverPrefs = autoInitContext.getSharedPreferences("edge_server_prefs", android.content.Context.MODE_PRIVATE)
+    val autoStart = serverPrefs.getBoolean("auto_start", false)
+    val autoStartModelName = serverPrefs.getString("auto_start_model", null)
+    val autoStartMtp = serverPrefs.getBoolean("auto_start_mtp", false)
+    val host = serverPrefs.getString("host", "0.0.0.0") ?: "0.0.0.0"
+    val port = serverPrefs.getInt("port", 8888)
 
-    // Save for next launch
-    prefs.edit().putString("last_model", model.name).apply()
+    // Pick the model to initialize: auto-start model (if enabled) or the last used model
+    val model = if (autoStart && !autoStartModelName.isNullOrEmpty()) {
+      downloaded.find { it.name == autoStartModelName } ?: downloaded.first()
+    } else {
+      val savedModelName = prefs.getString("last_model", null)
+      downloaded.find { it.name == savedModelName } ?: downloaded.first()
+    }
 
-    fun bindModel(m: com.google.ai.edge.gallery.data.Model) {
+    // Save for next launch if not auto-starting
+    if (!autoStart) {
+      prefs.edit().putString("last_model", model.name).apply()
+    }
+
+    // Force MTP (speculative decoding) preference on the model configuration
+    if (autoStart) {
+      model.configValues = model.configValues.toMutableMap().apply {
+        put(com.google.ai.edge.gallery.data.ConfigKeys.ENABLE_SPECULATIVE_DECODING.label, autoStartMtp)
+      }
+    }
+
+    fun bindAndStartServer(m: com.google.ai.edge.gallery.data.Model) {
       val fresh = modelManagerViewModel.getModelByName(m.name) ?: m
       Log.i(TAG, "Binding model '${fresh.name}', instance=${fresh.instance != null}")
       com.google.ai.edge.gallery.claw.ClawAgent.activeModel = fresh
@@ -221,6 +242,10 @@ fun GalleryNavHost(
         helper = fresh.runtimeHelper,
         displayName = fresh.displayName.ifEmpty { fresh.name },
       )
+      if (autoStart) {
+        Log.i(TAG, "Auto-starting Edge Server on $host:$port")
+        EdgeServerManager.startServer(autoInitContext, host = host, port = port)
+      }
     }
 
     if (model.instance == null) {
@@ -232,14 +257,14 @@ fun GalleryNavHost(
         try {
           modelManagerViewModel.initializeModel(
             context = autoInitContext, task = task, model = model,
-            onDone = { bindModel(model) },
+            onDone = { bindAndStartServer(model) },
           )
         } catch (e: Exception) {
           Log.e(TAG, "Auto-init failed: ${e.message}", e)
         }
       }
     } else {
-      bindModel(model)
+      bindAndStartServer(model)
     }
   }
 
@@ -527,6 +552,7 @@ fun GalleryNavHost(
       exitTransition = { slideDownExit() },
     ) {
       EdgeServerScreen(
+        modelManagerViewModel = modelManagerViewModel,
         onBack = {
           enableHomeScreenAnimation = false
           navController.navigateUp()
