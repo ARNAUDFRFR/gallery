@@ -197,13 +197,25 @@ fun GalleryNavHost(
   var autoInitDone by remember { mutableStateOf(false) }
   val prefs = remember { autoInitContext.getSharedPreferences("claw_prefs", android.content.Context.MODE_PRIVATE) }
 
+  // Read auto-start preferences immediately to launch the server as fast as possible on app startup
+  val serverPrefs = remember { autoInitContext.getSharedPreferences("edge_server_prefs", android.content.Context.MODE_PRIVATE) }
+  val autoStart = remember { serverPrefs.getBoolean("auto_start", false) }
+  val host = remember { serverPrefs.getString("host", "0.0.0.0") ?: "0.0.0.0" }
+  val port = remember { serverPrefs.getInt("port", 8888) }
+
+  LaunchedEffect(Unit) {
+    if (autoStart) {
+      Log.i(TAG, "Instant startup: Auto-starting Edge Server on $host:$port")
+      EdgeServerManager.startServer(autoInitContext, host = host, port = port, isLoading = true)
+    }
+  }
+
   // Register modelFinderCallback for dynamic model discovery via the Edge Server HTTP request
   DisposableEffect(Unit) {
     EdgeServerManager.modelFinderCallback = {
       android.os.Handler(android.os.Looper.getMainLooper()).post {
         val downloaded = modelManagerViewModel.getAllDownloadedModels()
         if (downloaded.isNotEmpty()) {
-          val serverPrefs = autoInitContext.getSharedPreferences("edge_server_prefs", android.content.Context.MODE_PRIVATE)
           val autoStartModelName = serverPrefs.getString("auto_start_model", null)
           val model = if (!autoStartModelName.isNullOrEmpty()) {
             downloaded.find { it.name == autoStartModelName } ?: downloaded.first()
@@ -261,12 +273,8 @@ fun GalleryNavHost(
     autoInitDone = true
 
     // Load auto-start settings for Edge Server
-    val serverPrefs = autoInitContext.getSharedPreferences("edge_server_prefs", android.content.Context.MODE_PRIVATE)
-    val autoStart = serverPrefs.getBoolean("auto_start", false)
     val autoStartModelName = serverPrefs.getString("auto_start_model", null)
     val autoStartMtp = serverPrefs.getBoolean("auto_start_mtp", false)
-    val host = serverPrefs.getString("host", "0.0.0.0") ?: "0.0.0.0"
-    val port = serverPrefs.getInt("port", 8888)
 
     // Pick the model to initialize: auto-start model (if enabled) or the last used model
     val model = if (autoStart && !autoStartModelName.isNullOrEmpty()) {
@@ -310,10 +318,6 @@ fun GalleryNavHost(
       }
       if (task != null) {
         Log.i(TAG, "Auto-initializing model '${model.name}' with task '${task.id}'")
-        if (autoStart) {
-          Log.i(TAG, "Auto-starting Edge Server early in loading state on $host:$port")
-          EdgeServerManager.startServer(autoInitContext, host = host, port = port, isLoading = true)
-        }
         try {
           modelManagerViewModel.initializeModel(
             context = autoInitContext, task = task, model = model,
