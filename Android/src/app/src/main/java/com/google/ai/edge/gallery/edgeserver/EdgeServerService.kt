@@ -65,6 +65,12 @@ class EdgeServerService : Service() {
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP_SERVER) {
       Log.i(TAG, "Stop action triggered from notification")
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+      } else {
+        @Suppress("DEPRECATION")
+        stopForeground(true)
+      }
       EdgeServerManager.stopServer(this)
       stopSelf()
       return START_NOT_STICKY
@@ -89,6 +95,12 @@ class EdgeServerService : Service() {
   }
 
   override fun onDestroy() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+      stopForeground(STOP_FOREGROUND_REMOVE)
+    } else {
+      @Suppress("DEPRECATION")
+      stopForeground(true)
+    }
     server?.stop()
     server = null
     Log.i(TAG, "Edge Server stopped")

@@ -88,13 +88,14 @@ object EdgeServerManager {
       }
     }
 
-    val intent = Intent(context, EdgeServerService::class.java).apply {
+    val appContext = context.applicationContext
+    val intent = Intent(appContext, EdgeServerService::class.java).apply {
       putExtra("host", host)
       putExtra("port", port)
       putExtra("is_loading", isLoading)
     }
-    context.startForegroundService(intent)
-    context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+    appContext.startForegroundService(intent)
+    appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)
     _state.value = _state.value.copy(isRunning = true, host = host, port = port)
   }
 
@@ -103,14 +104,15 @@ object EdgeServerManager {
     server?.stop()
     server = null
 
+    val appContext = context.applicationContext
     if (bound) {
-      try { context.unbindService(connection) } catch (e: Exception) {
+      try { appContext.unbindService(connection) } catch (e: Exception) {
         Log.w(TAG, "Unbind error: ${e.message}")
       }
       bound = false
     }
 
-    context.stopService(Intent(context, EdgeServerService::class.java))
+    appContext.stopService(Intent(appContext, EdgeServerService::class.java))
     service = null
     _state.value = ServerState()
     Log.i(TAG, "Server stopped")
