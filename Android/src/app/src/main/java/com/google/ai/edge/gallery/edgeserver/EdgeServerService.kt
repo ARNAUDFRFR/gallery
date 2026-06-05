@@ -19,7 +19,9 @@ package com.google.ai.edge.gallery.edgeserver
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.Binder
 import android.os.Build
@@ -33,6 +35,7 @@ import com.google.ai.edge.gallery.runtime.LlmModelHelper
 private const val TAG = "EdgeServerService"
 private const val CHANNEL_ID = "edge_server_channel"
 private const val NOTIFICATION_ID = 19001
+private const val ACTION_STOP_SERVER = "com.google.ai.edge.gallery.edgeserver.ACTION_STOP_SERVER"
 
 /**
  * Foreground Service that keeps the Edge Server HTTP API running in the
@@ -42,6 +45,11 @@ class EdgeServerService : Service() {
 
   private var server: EdgeServer? = null
   private val binder = LocalBinder()
+
+  private var currentHost = EdgeServer.DEFAULT_HOST
+  private var currentPort = EdgeServer.DEFAULT_PORT
+  private var activeModelName: String? = null
+  private var isModelLoading = false
 
   inner class LocalBinder : Binder() {
     fun getService(): EdgeServerService = this@EdgeServerService
@@ -55,15 +63,24 @@ class EdgeServerService : Service() {
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    val host = intent?.getStringExtra("host") ?: EdgeServer.DEFAULT_HOST
-    val port = intent?.getIntExtra("port", EdgeServer.DEFAULT_PORT) ?: EdgeServer.DEFAULT_PORT
-    startForeground(NOTIFICATION_ID, buildNotification(host, port))
+    if (intent?.action == ACTION_STOP_SERVER) {
+      Log.i(TAG, "Stop action triggered from notification")
+      EdgeServerManager.stopServer(this)
+      stopSelf()
+      return START_NOT_STICKY
+    }
+
+    currentHost = intent?.getStringExtra("host") ?: EdgeServer.DEFAULT_HOST
+    currentPort = intent?.getIntExtra("port", EdgeServer.DEFAULT_PORT) ?: EdgeServer.DEFAULT_PORT
+    isModelLoading = intent?.getBooleanExtra("is_loading", false) ?: false
+
+    startForeground(NOTIFICATION_ID, buildNotification())
 
     if (server == null || !server!!.isAlive) {
-      server = EdgeServer(hostname = host, port = port)
+      server = EdgeServer(hostname = currentHost, port = currentPort)
       try {
         server?.start()
-        Log.i(TAG, "Edge Server started on $host:$port")
+        Log.i(TAG, "Edge Server started on $currentHost:$currentPort")
       } catch (e: Exception) {
         Log.e(TAG, "Failed to start Edge Server", e)
       }
@@ -82,13 +99,24 @@ class EdgeServerService : Service() {
     server?.activeModel = model
     server?.activeModelHelper = helper
     server?.activeModelDisplayName = displayName
+    activeModelName = displayName
+    isModelLoading = false
     Log.i(TAG, "Model bound: $displayName")
+    updateNotification()
   }
 
   fun clearActiveModel() {
     server?.activeModel = null
     server?.activeModelHelper = null
     server?.activeModelDisplayName = ""
+    activeModelName = null
+    isModelLoading = false
+    updateNotification()
+  }
+
+  fun setModelLoading(isLoading: Boolean) {
+    isModelLoading = isLoading
+    updateNotification()
   }
 
   fun isServerRunning(): Boolean = server?.isAlive == true
@@ -111,12 +139,39 @@ class EdgeServerService : Service() {
     }
   }
 
-  private fun buildNotification(host: String, port: Int): Notification =
-    NotificationCompat.Builder(this, CHANNEL_ID)
+  private fun updateNotification() {
+    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    notificationManager.notify(NOTIFICATION_ID, buildNotification())
+  }
+
+  private fun buildNotification(): Notification {
+    val stopIntent = Intent(this, EdgeServerService::class.java).apply {
+      action = ACTION_STOP_SERVER
+    }
+    val stopPendingIntent = PendingIntent.getService(
+      this,
+      0,
+      stopIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    val contentText = when {
+      isModelLoading -> "Loading model..."
+      !activeModelName.isNullOrEmpty() -> "API running on $currentHost:$currentPort (Model: $activeModelName)"
+      else -> "API running on $currentHost:$currentPort"
+    }
+
+    val builder = NotificationCompat.Builder(this, CHANNEL_ID)
       .setContentTitle("Edge Server")
-      .setContentText("API running on $host:$port")
+      .setContentText(contentText)
       .setSmallIcon(R.drawable.ic_launcher_foreground)
       .setOngoing(true)
       .setPriority(NotificationCompat.PRIORITY_LOW)
-      .build()
+
+    if (!isModelLoading) {
+      builder.addAction(R.drawable.ic_stop, "Stop", stopPendingIntent)
+    }
+
+    return builder.build()
+  }
 }
