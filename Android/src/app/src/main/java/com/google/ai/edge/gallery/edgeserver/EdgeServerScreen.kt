@@ -16,6 +16,7 @@
 
 package com.google.ai.edge.gallery.edgeserver
 
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -38,15 +39,19 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -72,10 +77,14 @@ import androidx.compose.ui.unit.sp
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EdgeServerScreen(onBack: () -> Unit) {
+fun EdgeServerScreen(
+  modelManagerViewModel: ModelManagerViewModel,
+  onBack: () -> Unit
+) {
   val state by EdgeServerManager.state.collectAsState()
   val context = LocalContext.current
   val clipboard = LocalClipboardManager.current
+  val prefs = remember { context.getSharedPreferences("edge_server_prefs", Context.MODE_PRIVATE) }
 
   Scaffold(
     topBar = {
@@ -89,8 +98,8 @@ fun EdgeServerScreen(onBack: () -> Unit) {
       )
     },
   ) { padding ->
-    var hostInput by remember { mutableStateOf(state.host) }
-    var portInput by remember { mutableStateOf(state.port.toString()) }
+    var hostInput by remember { mutableStateOf(prefs.getString("host", "0.0.0.0") ?: "0.0.0.0") }
+    var portInput by remember { mutableStateOf(prefs.getInt("port", 8888).toString()) }
 
     Column(
       modifier = Modifier
@@ -120,7 +129,10 @@ fun EdgeServerScreen(onBack: () -> Unit) {
           ) {
             OutlinedTextField(
               value = hostInput,
-              onValueChange = { hostInput = it },
+              onValueChange = { 
+                hostInput = it
+                prefs.edit().putString("host", it).apply()
+              },
               label = { Text("Host") },
               singleLine = true,
               enabled = !state.isRunning,
@@ -129,7 +141,13 @@ fun EdgeServerScreen(onBack: () -> Unit) {
             )
             OutlinedTextField(
               value = portInput,
-              onValueChange = { portInput = it.filter { c -> c.isDigit() } },
+              onValueChange = { newValue ->
+                val filtered = newValue.filter { c -> c.isDigit() }
+                portInput = filtered
+                filtered.toIntOrNull()?.let {
+                  prefs.edit().putInt("port", it).apply()
+                }
+              },
               label = { Text("Port") },
               singleLine = true,
               enabled = !state.isRunning,
@@ -143,6 +161,135 @@ fun EdgeServerScreen(onBack: () -> Unit) {
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
               modifier = Modifier.padding(top = 4.dp),
+            )
+          }
+        }
+      }
+
+      // ── Auto-Start Settings ──
+      var autoStartEnabled by remember { mutableStateOf(prefs.getBoolean("auto_start", false)) }
+      var autoStartModel by remember { mutableStateOf(prefs.getString("auto_start_model", "") ?: "") }
+      var autoStartMtp by remember { mutableStateOf(prefs.getBoolean("auto_start_mtp", false)) }
+
+      Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+      ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+          Text(
+            text = "Auto-Start Settings",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+          )
+          Spacer(Modifier.height(12.dp))
+
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+          ) {
+            Text(
+              text = "Start server on app launch",
+              style = MaterialTheme.typography.bodyMedium,
+            )
+            Switch(
+              checked = autoStartEnabled,
+              enabled = !state.isRunning,
+              onCheckedChange = { enabled ->
+                autoStartEnabled = enabled
+                prefs.edit().putBoolean("auto_start", enabled).apply()
+              }
+            )
+          }
+
+          if (autoStartEnabled) {
+            Spacer(Modifier.height(16.dp))
+
+            // Choose Model to Load
+            Text(
+              text = "Model to Load",
+              style = MaterialTheme.typography.bodyMedium,
+              fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(8.dp))
+
+            val downloadedModels = modelManagerViewModel.getAllDownloadedModels()
+            if (downloadedModels.isEmpty()) {
+              Text(
+                text = "No downloaded models. Please download one first.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+              )
+            } else {
+              var expanded by remember { mutableStateOf(false) }
+              val currentModel = downloadedModels.find { it.name == autoStartModel } ?: downloadedModels.firstOrNull()
+              if (currentModel != null && autoStartModel != currentModel.name) {
+                autoStartModel = currentModel.name
+                prefs.edit().putString("auto_start_model", currentModel.name).apply()
+              }
+
+              Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                  onClick = { expanded = true },
+                  enabled = !state.isRunning,
+                  modifier = Modifier.fillMaxWidth(),
+                  shape = RoundedCornerShape(8.dp)
+                ) {
+                  Text(text = currentModel?.displayName?.ifEmpty { currentModel.name } ?: "Select Model")
+                }
+                DropdownMenu(
+                  expanded = expanded,
+                  onDismissRequest = { expanded = false }
+                ) {
+                  downloadedModels.forEach { m ->
+                    DropdownMenuItem(
+                      text = { Text(m.displayName.ifEmpty { m.name }) },
+                      onClick = {
+                        autoStartModel = m.name
+                        prefs.edit().putString("auto_start_model", m.name).apply()
+                        expanded = false
+                      }
+                    )
+                  }
+                }
+              }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // Use MTP Switch
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+              Column(modifier = Modifier.weight(1f)) {
+                Text(
+                  text = "Use Multi-Token Prediction (MTP)",
+                  style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                  text = "Faster decoding on compatible models",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+              }
+              Switch(
+                checked = autoStartMtp,
+                enabled = !state.isRunning,
+                onCheckedChange = { enabled ->
+                  autoStartMtp = enabled
+                  prefs.edit().putBoolean("auto_start_mtp", enabled).apply()
+                }
+              )
+            }
+          }
+          if (state.isRunning) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+              text = "Stop server to change auto-start settings",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
             )
           }
         }
