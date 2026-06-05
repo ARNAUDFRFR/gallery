@@ -77,7 +77,7 @@ object EdgeServerManager {
   }
 
   /** Start the Edge Server on [host]:[port] with a foreground service. */
-  fun startServer(context: Context, host: String = EdgeServer.DEFAULT_HOST, port: Int = EdgeServer.DEFAULT_PORT) {
+  fun startServer(context: Context, host: String = EdgeServer.DEFAULT_HOST, port: Int = EdgeServer.DEFAULT_PORT, isLoading: Boolean = false) {
     if (server == null || !server!!.isAlive) {
       server = EdgeServer(hostname = host, port = port).also { it.modelFinder = modelFinderCallback }
       try {
@@ -91,6 +91,7 @@ object EdgeServerManager {
     val intent = Intent(context, EdgeServerService::class.java).apply {
       putExtra("host", host)
       putExtra("port", port)
+      putExtra("is_loading", isLoading)
     }
     context.startForegroundService(intent)
     context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
@@ -132,6 +133,11 @@ object EdgeServerManager {
     server?.activeModelDisplayName = ""
     service?.clearActiveModel()
     _state.value = _state.value.copy(modelName = "")
+  }
+
+  /** Set model loading state to update notification text. */
+  fun setModelLoading(isLoading: Boolean) {
+    service?.setModelLoading(isLoading)
   }
 
   private fun refreshState() {

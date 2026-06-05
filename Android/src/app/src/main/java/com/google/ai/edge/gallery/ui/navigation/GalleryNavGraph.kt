@@ -197,6 +197,62 @@ fun GalleryNavHost(
   var autoInitDone by remember { mutableStateOf(false) }
   val prefs = remember { autoInitContext.getSharedPreferences("claw_prefs", android.content.Context.MODE_PRIVATE) }
 
+  // Register modelFinderCallback for dynamic model discovery via the Edge Server HTTP request
+  DisposableEffect(Unit) {
+    EdgeServerManager.modelFinderCallback = {
+      android.os.Handler(android.os.Looper.getMainLooper()).post {
+        val downloaded = modelManagerViewModel.getAllDownloadedModels()
+        if (downloaded.isNotEmpty()) {
+          val serverPrefs = autoInitContext.getSharedPreferences("edge_server_prefs", android.content.Context.MODE_PRIVATE)
+          val autoStartModelName = serverPrefs.getString("auto_start_model", null)
+          val model = if (!autoStartModelName.isNullOrEmpty()) {
+            downloaded.find { it.name == autoStartModelName } ?: downloaded.first()
+          } else {
+            val savedModelName = prefs.getString("last_model", null)
+            downloaded.find { it.name == savedModelName } ?: downloaded.first()
+          }
+
+          val task = modelManagerViewModel.uiState.value.tasks.find { t ->
+            t.models.any { it.name == model.name } && t.id != com.google.ai.edge.gallery.data.BuiltInTaskId.LLM_AGENT_CHAT
+          }
+
+          if (task != null) {
+            Log.i(TAG, "modelFinderCallback: Auto-initializing model '${model.name}' with task '${task.id}'")
+            EdgeServerManager.setModelLoading(true)
+            try {
+              modelManagerViewModel.initializeModel(
+                context = autoInitContext,
+                task = task,
+                model = model,
+                onDone = {
+                  val fresh = modelManagerViewModel.getModelByName(model.name) ?: model
+                  Log.i(TAG, "modelFinderCallback: Binding model '${fresh.name}'")
+                  com.google.ai.edge.gallery.claw.ClawAgent.activeModel = fresh
+                  com.google.ai.edge.gallery.claw.ClawAgent.activeModelHelper = fresh.runtimeHelper
+                  EdgeServerManager.bindModel(
+                    model = fresh,
+                    helper = fresh.runtimeHelper,
+                    displayName = fresh.displayName.ifEmpty { fresh.name },
+                  )
+                },
+                onError = {
+                  Log.e(TAG, "modelFinderCallback: Initialization failed")
+                  EdgeServerManager.setModelLoading(false)
+                }
+              )
+            } catch (e: Exception) {
+              Log.e(TAG, "modelFinderCallback: Exception starting init: ${e.message}", e)
+              EdgeServerManager.setModelLoading(false)
+            }
+          }
+        }
+      }
+    }
+    onDispose {
+      EdgeServerManager.modelFinderCallback = null
+    }
+  }
+
   LaunchedEffect(navUiState.modelDownloadStatus) {
     if (autoInitDone) return@LaunchedEffect
     val downloaded = modelManagerViewModel.getAllDownloadedModels()
@@ -254,13 +310,22 @@ fun GalleryNavHost(
       }
       if (task != null) {
         Log.i(TAG, "Auto-initializing model '${model.name}' with task '${task.id}'")
+        if (autoStart) {
+          Log.i(TAG, "Auto-starting Edge Server early in loading state on $host:$port")
+          EdgeServerManager.startServer(autoInitContext, host = host, port = port, isLoading = true)
+        }
         try {
           modelManagerViewModel.initializeModel(
             context = autoInitContext, task = task, model = model,
             onDone = { bindAndStartServer(model) },
+            onError = {
+              Log.e(TAG, "Auto-init model initialization error: $it")
+              EdgeServerManager.setModelLoading(false)
+            }
           )
         } catch (e: Exception) {
           Log.e(TAG, "Auto-init failed: ${e.message}", e)
+          EdgeServerManager.setModelLoading(false)
         }
       }
     } else {
@@ -670,7 +735,17 @@ private fun CustomTaskScreen(
           TAG,
           "Initializing model '${selectedModel.name}' from CustomTaskScreen launched effect",
         )
-        modelManagerViewModel.initializeModel(context, task = task, model = selectedModel)
+        if (EdgeServerManager.state.value.isRunning) {
+          EdgeServerManager.setModelLoading(true)
+        }
+        modelManagerViewModel.initializeModel(
+          context = context,
+          task = task,
+          model = selectedModel,
+          onError = {
+            EdgeServerManager.setModelLoading(false)
+          }
+        )
       }
     }
   }
